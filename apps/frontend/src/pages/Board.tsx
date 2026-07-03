@@ -13,8 +13,8 @@ export default function Board() {
  const socketRef = useRef<Socket | null>(null);
  const [loading, setLoading] = useState(true);
  const { 
- elements, setElements, addElement, 
- undo, redo, clear, saveState, isDarkMode, backgroundPattern, scale, position
+ elements, setElements, addElement, updateElement,
+ undo, redo, clear, isDarkMode, backgroundPattern, scale, position
  } = useBoardStore();
 
  useEffect(() => {
@@ -54,7 +54,12 @@ export default function Board() {
 
   socket.on('element-removed', (elementId: string) => {
     const currentElements = useBoardStore.getState().elements;
-    setElements(currentElements.filter(e => e.id !== elementId));
+    useBoardStore.getState().setElements(currentElements.filter(e => e.id !== elementId));
+  });
+
+  socket.on('element-updated', ({ id: elId, updates }: { id: string, updates: any }) => {
+    const currentElements = useBoardStore.getState().elements;
+    useBoardStore.getState().setElements(currentElements.map(e => e.id === elId ? { ...e, ...updates } : e));
   });
 
  } catch (err) {
@@ -121,11 +126,7 @@ export default function Board() {
  }
  };
 
- const syncFullState = () => {
-    // Send the entire board state in a single event for a seamless update
-    const currentElements = useBoardStore.getState().elements;
-    socketRef.current?.emit('sync-board-state', { boardId: id, elements: currentElements });
-  };
+
 
  if (loading) {
  return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 ">Loading board...</div>;
@@ -138,6 +139,18 @@ export default function Board() {
     return classes;
   };
 
+  const handleCopy = (copiedElements: DrawingElement[]) => {
+    if (socketRef.current) {
+      copiedElements.forEach(el => socketRef.current!.emit('draw-element', { boardId: id, element: el }));
+    }
+  };
+
+  const handleDelete = (deletedIds: string[]) => {
+    if (socketRef.current) {
+      deletedIds.forEach(elId => socketRef.current!.emit('remove-element', { boardId: id, elementId: elId }));
+    }
+  };
+
   const backgroundStyle = backgroundPattern !== 'none' 
     ? { 
         backgroundSize: `${20 * scale}px ${20 * scale}px`,
@@ -147,8 +160,15 @@ export default function Board() {
 
  return (
  <div className={`relative w-screen h-screen overflow-hidden touch-none ${getThemeClass()}`} style={backgroundStyle}>
- <Toolbar onUndo={handleUndo} onRedo={handleRedo} onClear={handleClear} />
- <DrawingCanvas onDrawEnd={handleDrawEnd} elements={elements} />
+ <Toolbar onUndo={handleUndo} onRedo={handleRedo} onClear={handleClear} onCopy={handleCopy} onDelete={handleDelete} />
+ <DrawingCanvas 
+  onDrawEnd={handleDrawEnd} 
+  elements={elements} 
+  onElementUpdate={(elementId, updates) => {
+    updateElement(elementId, updates);
+    if (socketRef.current) socketRef.current.emit('update-element', { boardId: id, id: elementId, updates });
+  }}
+ />
  </div>
  );
 }

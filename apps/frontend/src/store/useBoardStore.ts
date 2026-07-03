@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Tool = 'pen' | 'line' | 'rectangle' | 'circle' | 'eraser';
+export type Tool = 'pen' | 'line' | 'rectangle' | 'circle' | 'eraser' | 'select-rect' | 'select-lasso';
 export type BackgroundPattern = 'none' | 'square' | 'dots';
 
 
@@ -20,6 +20,9 @@ export interface DrawingElement {
   radius?: number; // For circle
   color: string;
   strokeWidth: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
 }
 
 interface BoardState {
@@ -34,12 +37,14 @@ interface BoardState {
   scale: number;
   position: { x: number, y: number };
   lastEditedArea: { x: number, y: number } | null;
+  selectedIds: string[];
   toggleDarkMode: () => void;
   setBackgroundPattern: (pattern: BackgroundPattern) => void;
   setScale: (scale: number) => void;
   zoom: (newScale: number, focusPoint?: { x: number, y: number }) => void;
   setPosition: (pos: { x: number, y: number }) => void;
   setLastEditedArea: (pos: { x: number, y: number }) => void;
+  setSelectedIds: (ids: string[]) => void;
   setTool: (tool: Tool) => void;
   setColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
@@ -50,6 +55,8 @@ interface BoardState {
   redo: () => DrawingElement | null;
   clear: () => void;
   saveState: () => void;
+  deleteSelected: () => string[];
+  copySelected: () => DrawingElement[];
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -64,6 +71,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   scale: 1,
   position: { x: 0, y: 0 },
   lastEditedArea: null,
+  selectedIds: [],
   
   toggleDarkMode: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
   setBackgroundPattern: (pattern) => set({ backgroundPattern: pattern }),
@@ -71,6 +79,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   
   setPosition: (position) => set({ position }),
   setLastEditedArea: (lastEditedArea) => set({ lastEditedArea }),
+  setSelectedIds: (selectedIds) => set({ selectedIds }),
 
   zoom: (newScale, focusPoint) => set((state) => {
     const clampedScale = Math.min(Math.max(newScale, 0.1), 5);
@@ -150,6 +159,43 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   clear: () => {
-    set({ elements: [], undoStack: [], redoStack: [] });
+    set({ elements: [], undoStack: [], redoStack: [], selectedIds: [] });
+  },
+
+  deleteSelected: () => {
+    const { elements, selectedIds } = get();
+    if (selectedIds.length === 0) return [];
+    
+    set({ 
+      elements: elements.filter(el => !selectedIds.includes(el.id)),
+      selectedIds: []
+    });
+    return selectedIds;
+  },
+
+  copySelected: () => {
+    const { elements, selectedIds } = get();
+    if (selectedIds.length === 0) return [];
+    
+    const newElements = elements
+      .filter(el => selectedIds.includes(el.id))
+      .map(el => {
+        // Offset by a small amount
+        const offset = 20;
+        return {
+          ...el,
+          id: crypto.randomUUID(),
+          x: el.x !== undefined ? el.x + offset : undefined,
+          y: el.y !== undefined ? el.y + offset : undefined,
+          points: el.points ? el.points.map(p => ({ x: p.x + offset, y: p.y + offset })) : []
+        };
+      });
+      
+    set({
+      elements: [...elements, ...newElements],
+      selectedIds: newElements.map(el => el.id)
+    });
+    
+    return newElements;
   }
 }));

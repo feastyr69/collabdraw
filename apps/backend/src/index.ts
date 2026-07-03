@@ -101,6 +101,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('update-element', async ({ boardId, id, updates }) => {
+    socket.to(boardId).emit('element-updated', { id, updates });
+    
+    const stateStr = await redis.get(`board:${boardId}`);
+    if (stateStr) {
+      const state = JSON.parse(stateStr);
+      const newState = state.map((el: any) => el.id === id ? { ...el, ...updates } : el);
+      await redis.set(`board:${boardId}`, JSON.stringify(newState));
+      dirtyBoards.add(boardId);
+    }
+  });
+
   socket.on('sync-board-state', async ({ boardId, elements }) => {
     socket.to(boardId).emit('board-state', elements);
     await redis.set(`board:${boardId}`, JSON.stringify(elements));
