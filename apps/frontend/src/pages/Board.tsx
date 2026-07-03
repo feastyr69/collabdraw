@@ -13,8 +13,8 @@ export default function Board() {
  const socketRef = useRef<Socket | null>(null);
  const [loading, setLoading] = useState(true);
  const { 
- elements, setElements, addElement, 
- undo, redo, clear, saveState 
+ elements, setElements, addElement, updateElement,
+ undo, redo, clear, isDarkMode, backgroundPattern, scale, position
  } = useBoardStore();
 
  useEffect(() => {
@@ -48,10 +48,19 @@ export default function Board() {
  addElement(element);
  });
 
- socket.on('board-cleared', () => {
- useBoardStore.getState().saveState();
- setElements([]);
- });
+  socket.on('board-cleared', () => {
+    setElements([]);
+  });
+
+  socket.on('element-removed', (elementId: string) => {
+    const currentElements = useBoardStore.getState().elements;
+    useBoardStore.getState().setElements(currentElements.filter(e => e.id !== elementId));
+  });
+
+  socket.on('element-updated', ({ id: elId, updates }: { id: string, updates: any }) => {
+    const currentElements = useBoardStore.getState().elements;
+    useBoardStore.getState().setElements(currentElements.map(e => e.id === elId ? { ...e, ...updates } : e));
+  });
 
  } catch (err) {
  console.error('Error connecting to board:', err);
@@ -68,31 +77,47 @@ export default function Board() {
  };
  }, [id, token, navigate, setElements, addElement]);
 
- const handleDrawEnd = (element: DrawingElement) => {
- saveState();
- addElement(element);
- if (socketRef.current) {
- socketRef.current.emit('draw-element', { boardId: id, element });
- }
- };
+ useEffect(() => {
+   const handleKeyDown = (e: KeyboardEvent) => {
+     if (e.ctrlKey || e.metaKey) {
+       if (e.key.toLowerCase() === 'z') {
+         e.preventDefault();
+         if (e.shiftKey) {
+           redo();
+         } else {
+           undo();
+         }
+       } else if (e.key.toLowerCase() === 'y') {
+         e.preventDefault();
+         redo();
+       }
+     }
+   };
 
- const handleUndo = () => {
- undo();
- // For a fully robust app, we'd sync undo/redo stacks or use CRDTs. 
- // For level 1, if we undo, we probably need to sync the entire state 
- // back to the server to rewrite the Redis state.
- // To keep it simple, we'll just emit a clear and re-emit all elements.
- if (socketRef.current) {
- syncFullState();
- }
- };
+   window.addEventListener('keydown', handleKeyDown);
+   return () => window.removeEventListener('keydown', handleKeyDown);
+ }, [undo, redo]);
 
- const handleRedo = () => {
- redo();
- if (socketRef.current) {
- syncFullState();
- }
- };
+  const handleDrawEnd = (element: DrawingElement) => {
+    addElement(element);
+    if (socketRef.current) {
+      socketRef.current.emit('draw-element', { boardId: id, element });
+    }
+  };
+
+  const handleUndo = () => {
+    const el = undo();
+    if (el && socketRef.current) {
+      socketRef.current.emit('remove-element', { boardId: id, elementId: el.id });
+    }
+  };
+
+  const handleRedo = () => {
+    const el = redo();
+    if (el && socketRef.current) {
+      socketRef.current.emit('draw-element', { boardId: id, element: el });
+    }
+  };
 
  const handleClear = () => {
  clear();
@@ -101,20 +126,49 @@ export default function Board() {
  }
  };
 
- const syncFullState = () => {
-    // Send the entire board state in a single event for a seamless update
-    const currentElements = useBoardStore.getState().elements;
-    socketRef.current?.emit('sync-board-state', { boardId: id, elements: currentElements });
-  };
+
 
  if (loading) {
  return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 ">Loading board...</div>;
  }
 
+  const getThemeClass = () => {
+    let classes = isDarkMode ? 'bg-gray-900 text-white dark-mode' : 'bg-gray-100 text-gray-900';
+    if (backgroundPattern === 'square') classes += isDarkMode ? ' bg-graph-dark' : ' bg-graph-light';
+    else if (backgroundPattern === 'dots') classes += isDarkMode ? ' bg-dots-dark' : ' bg-dots-light';
+    return classes;
+  };
+
+  const handleCopy = (copiedElements: DrawingElement[]) => {
+    if (socketRef.current) {
+      copiedElements.forEach(el => socketRef.current!.emit('draw-element', { boardId: id, element: el }));
+    }
+  };
+
+  const handleDelete = (deletedIds: string[]) => {
+    if (socketRef.current) {
+      deletedIds.forEach(elId => socketRef.current!.emit('remove-element', { boardId: id, elementId: elId }));
+    }
+  };
+
+  const backgroundStyle = backgroundPattern !== 'none' 
+    ? { 
+        backgroundSize: `${20 * scale}px ${20 * scale}px`,
+        backgroundPosition: `${position.x}px ${position.y}px`
+      } 
+    : {};
+
  return (
- <div className="relative w-screen h-screen overflow-hidden bg-gray-100 touch-none">
- <Toolbar onUndo={handleUndo} onRedo={handleRedo} onClear={handleClear} />
- <DrawingCanvas onDrawEnd={handleDrawEnd} elements={elements} />
+ <div className={`relative w-screen h-screen overflow-hidden touch-none ${getThemeClass()}`} style={backgroundStyle}>
+ <Toolbar onUndo={handleUndo} onRedo={handleRedo} onClear={handleClear} onCopy={handleCopy} onDelete={handleDelete} />
+ <DrawingCanvas 
+  onDrawEnd={handleDrawEnd} 
+  elements={elements} 
+  onElementUpdate={(elementId, updates) => {
+    updateElement(elementId, updates);
+    if (socketRef.current) socketRef.current.emit('update-element', { boardId: id, id: elementId, updates });
+  }}
+ />
  </div>
  );
 }
