@@ -89,6 +89,18 @@ io.on('connection', (socket) => {
     dirtyBoards.add(boardId);
   });
 
+  socket.on('remove-element', async ({ boardId, elementId }) => {
+    socket.to(boardId).emit('element-removed', elementId);
+    
+    const stateStr = await redis.get(`board:${boardId}`);
+    if (stateStr) {
+      const state = JSON.parse(stateStr);
+      const newState = state.filter((el: any) => el.id !== elementId);
+      await redis.set(`board:${boardId}`, JSON.stringify(newState));
+      dirtyBoards.add(boardId);
+    }
+  });
+
   socket.on('sync-board-state', async ({ boardId, elements }) => {
     socket.to(boardId).emit('board-state', elements);
     await redis.set(`board:${boardId}`, JSON.stringify(elements));
