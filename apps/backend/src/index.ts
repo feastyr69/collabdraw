@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import { neon } from '@neondatabase/serverless';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import authRouter from './routes/auth';
 
 dotenv.config();
 
@@ -21,6 +22,9 @@ const io = new Server(server, {
 
 // Setup Neon DB
 const sql = neon(process.env.NEON_DATABASE_URL || '');
+
+// Mount Auth Router
+app.use('/api/auth', authRouter(sql));
 
 // Setup Redis
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
