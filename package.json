@@ -1,0 +1,10 @@
+{
+  "name": "collabdraw",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "docker compose up"
+  }
+}
